@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imjang-report"
+version = "0.1.0"
+description = "Korean real-estate site-visit photo GPS pipeline and interactive HTML report generator"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "gtkim"}]
+keywords = ["real-estate", "korea", "gps", "leaflet", "site-visit", "imjang"]
+dependencies = [
+  "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.0",
+  "piexif>=1.1.3",
+]
+dev = [
+  "pytest>=8.0",
+  "piexif>=1.1.3",
+  "ruff>=0.6",
+]
+
+[project.scripts]
+imjang-check = "imjang_report.scripts.check_setup:main"
+imjang-run = "imjang_report.scripts.run_pipeline:main"
+imjang-export-notion-zip = "imjang_report.scripts.export_notion_md_zip:main"
+imjang-fetch-molit = "imjang_report.scripts.fetch_molit:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
