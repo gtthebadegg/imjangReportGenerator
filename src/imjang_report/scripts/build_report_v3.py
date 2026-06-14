@@ -608,7 +608,10 @@ html_content = r'''<!DOCTYPE html>
     <div class="review-area">
       <strong style="font-size:12px;">📝 후기</strong>
       <div id="photo-modal-review" style="margin-top:4px;font-size:12px;color:#1b5e20;"></div>
-      <button style="margin-top:6px;padding:5px 10px;background:#2c5f7e;color:white;border:none;border-radius:3px;cursor:pointer;font-size:11px;" onclick="editCurrentPhotoReview()">📝 후기 작성/수정</button>
+      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+        <button style="padding:5px 10px;background:#2c5f7e;color:white;border:none;border-radius:3px;cursor:pointer;font-size:11px;" onclick="editCurrentPhotoReview()">📝 후기 작성/수정</button>
+        <button id="photo-modal-delete-review-btn" style="display:none;padding:5px 10px;background:#d35400;color:white;border:none;border-radius:3px;cursor:pointer;font-size:11px;" onclick="deleteCurrentPhotoReview()">🗑️ 후기 삭제</button>
+      </div>
     </div>
   </div>
 </div>
@@ -965,6 +968,7 @@ function formatDealDateInfo(a, label) {
 }
 function renderAptPopup(a) {
   const reviewBadge = getReviewBadge(a.id);
+  const hasReview = !!getReviewText(a.id) || getReviewTags(a.id).length > 0;
   const fav = isFavoriteApt(a.id);
   const leader = isLeaderApt(a.id);
   let tagsHtml = '';
@@ -997,6 +1001,7 @@ function renderAptPopup(a) {
       '<a href="' + escapeHtml(a.kakao_map_link) + '" target="_blank" style="background:#ffe600;color:#000;padding:3px 6px;border-radius:3px;font-size:10px;text-decoration:none;">카카오맵</a>' +
       '<a href="' + escapeHtml(a.google_maps_link || '#') + '" target="_blank" style="background:#4285f4;color:white;padding:3px 6px;border-radius:3px;font-size:10px;text-decoration:none;">구글맵</a>' +
       '<button onclick="openReviewModal(\'' + a.id + '\', \'apartment\', \'' + escapeJs(a.name) + '\')" style="background:#2c5f7e;color:white;padding:3px 6px;border-radius:3px;font-size:10px;border:none;cursor:pointer;">📝 후기</button>' +
+      (hasReview ? '<button onclick="deleteReviewById(\'' + a.id + '\', \'이 아파트 단지의 후기를 삭제하시겠습니까?\', event)" style="background:#d35400;color:white;padding:3px 6px;border-radius:3px;font-size:10px;border:none;cursor:pointer;">🗑️ 후기 삭제</button>' : '') +
     '</div>' +
   '</div>';
 }
@@ -1601,11 +1606,26 @@ function saveReview() {
 }
 function deleteReview() {
   if (!currentReviewTarget) return;
-  if (!confirm('이 후기를 삭제하시겠습니까?')) return;
-  delete storage.reviews[currentReviewTarget.id];
+  deleteReviewById(currentReviewTarget.id, '이 후기를 삭제하시겠습니까?');
+}
+function deleteReviewById(targetId, message, event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  if (!targetId) return;
+  if (!storage.reviews[targetId]) return;
+  if (!confirm(message || '이 후기를 삭제하시겠습니까?')) return;
+  delete storage.reviews[targetId];
   saveStorage();
-  closeReviewModal();
+  if (currentReviewTarget && currentReviewTarget.id === targetId) closeReviewModal();
+  if (currentPhotoReviewTarget && currentPhotoReviewTarget.id === targetId) closePhotoModal();
+  showSaveStatus('🗑️ 후기 삭제됨');
   refreshAll();
+}
+function deleteCurrentPhotoReview() {
+  if (!currentPhotoReviewTarget) return;
+  deleteReviewById(currentPhotoReviewTarget.id, '이 사진의 후기를 삭제하시겠습니까?');
 }
 
 // === Photo modal ===
@@ -1627,6 +1647,8 @@ function openPhotoModal(photoId, filename, timestamp) {
   const tags = getReviewTags(photoId);
   const tagsHtml = tags.length ? '<div style="margin-top:4px;">' + tags.map(function(t){return '<span class="tag">#' + escapeHtml(t) + '</span>';}).join('') + '</div>' : '';
   document.getElementById('photo-modal-review').innerHTML = (review ? escapeHtml(review) : '<span style="color:#999;">(후기 없음 — 작성해주세요)</span>') + tagsHtml;
+  const deleteBtn = document.getElementById('photo-modal-delete-review-btn');
+  if (deleteBtn) deleteBtn.style.display = (review || tags.length) ? 'inline-block' : 'none';
   document.getElementById('photo-modal').classList.add('show');
 }
 function closePhotoModal() {

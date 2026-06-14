@@ -74,6 +74,12 @@ def test_build_report_from_minimal_session(tmp_path: Path) -> None:
     assert "function photoAssetUrl" in html
     assert "function photoOriginalFileUrl" in html
     assert "function photoImgOnError" in html
+    assert "id=\"photo-modal-delete-review-btn\"" in html
+    assert "function deleteReviewById" in html
+    assert "function deleteCurrentPhotoReview" in html
+    assert "이 사진의 후기를 삭제하시겠습니까?" in html
+    assert "이 아파트 단지의 후기를 삭제하시겠습니까?" in html
+    assert "🗑️ 후기 삭제" in html
     assert "file:///" in html and ":/" in html
     assert "^\\/mnt\\/([a-zA-Z])\\/(.*)$" in html
     assert "onerror=\"" in html
