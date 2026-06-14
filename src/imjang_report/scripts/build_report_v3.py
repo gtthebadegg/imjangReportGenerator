@@ -751,10 +751,33 @@ function getReviewTags(targetId) {
   if (!r) return [];
   return r.tags || [];
 }
-function photoMarkdownUrl(p) {
-  const rel = 'assets/photos/' + encodeURIComponent(p.filename).replace(/%2F/g, '/');
+function encodePathSegments(path) {
+  return String(path || '').split('/').map(function(part) { return encodeURIComponent(part); }).join('/');
+}
+function wslPathToFileUrl(path) {
+  const s = String(path || '');
+  const m = s.match(/^\/mnt\/([a-zA-Z])\/(.*)$/);
+  if (m) return 'file:///' + m[1].toUpperCase() + ':/' + encodePathSegments(m[2]);
+  if (s.startsWith('/')) return 'file://' + encodePathSegments(s);
+  return s;
+}
+function photoAssetUrl(p) {
+  const rel = 'assets/photos/' + encodeURIComponent(p.filename || '').replace(/%2F/g, '/');
   try { return new URL(rel, window.location.href).href; }
   catch (e) { return rel; }
+}
+function photoOriginalFileUrl(p) {
+  const folder = SESSION.photo_folder || '';
+  if (!folder || !p || !p.filename) return '';
+  return wslPathToFileUrl(String(folder).replace(/\/$/, '') + '/' + p.filename);
+}
+function photoImgOnError(p) {
+  const fallback = photoOriginalFileUrl(p);
+  if (!fallback) return '';
+  return 'this.onerror=null;this.src=\'' + escapeJs(fallback) + '\';';
+}
+function photoMarkdownUrl(p) {
+  return photoAssetUrl(p);
 }
 function appendNeighborhoodReviewMarkdown(lines) {
   const nr = storage.neighborhood_review || {};
@@ -959,7 +982,7 @@ function renderAptPopup(a) {
     (leader ? ' <span style="background:#d35400;color:white;padding:1px 5px;border-radius:3px;font-size:9px;">👑 대장</span>' : '') +
     (fav ? ' <span style="background:#f9a825;color:#1a3a4d;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;">★ 관심</span>' : '') +
     reviewBadge + '</div>' +
-      '<button onclick="hideMismatchedApt(\'' + a.id + '\', \'' + escapeJs(a.name) + '\', event)" title="실제 지도와 맞지 않는 단지를 지도에서 삭제" style="flex-shrink:0;background:#fff3e0;color:#c0392b;border:1px solid #e67e22;border-radius:3px;padding:2px 5px;font-size:9px;cursor:pointer;line-height:1.25;">실제 지도와<br>맞지 않습니다</button>' +
+      '<button onclick="hideMismatchedApt(\'' + a.id + '\', \'' + escapeJs(a.name) + '\', event)" title="실제 지도와 맞지 않는 단지를 지도에서 삭제" style="flex-shrink:0;background:#fff3e0;color:#c0392b;border:1px solid #e67e22;border-radius:3px;padding:2px 5px;font-size:9px;cursor:pointer;line-height:1.25;">실제 지도와<br>맞지 않나요?</button>' +
     '</div>' +
     '<div style="font-size:10px;color:#666;margin-top:2px;">' + escapeHtml(a.address) + '</div>' +
     (a.built_year ? '<div style="font-size:11px;margin-top:3px;">준공: ' + a.built_year + '년</div>' : '') +
@@ -1066,7 +1089,7 @@ Object.keys(photoClusters).sort().forEach(function(cid) {
       '</div>' +
       '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;margin-bottom:6px;">' +
         ps.slice(0, 3).map(function(p) {
-          return '<img src="assets/photos/' + escapeHtml(p.filename) + '" style="width:100%;height:50px;object-fit:cover;border-radius:2px;">';
+          return '<img src="' + escapeHtml(photoAssetUrl(p)) + '" onerror="' + photoImgOnError(p) + '" style="width:100%;height:50px;object-fit:cover;border-radius:2px;">';
         }).join('') +
       '</div>' +
       '<button onclick="openClusterModal(\'' + cid + '\')" style="width:100%;background:#2c5f7e;color:white;padding:6px;border:none;border-radius:3px;cursor:pointer;font-size:11px;">📷 사진 모두 보기 (' + ps.length + '장)</button>' +
@@ -1099,7 +1122,7 @@ function openClusterModal(cid) {
     const tagsStr = tags.length ? ' #' + tags.join(' #') : '';
     return '<div id="cluster-photo-' + p.id + '" style="margin-bottom:14px;border:1px solid ' + (hasReview ? '#2e7d32' : '#ddd') + ';border-radius:6px;overflow:hidden;background:white;">' +
       '<div style="position:relative;">' +
-        '<img src="assets/photos/' + escapeHtml(p.filename) + '" style="width:100%;max-height:50vh;object-fit:contain;background:#222;">' +
+        '<img src="' + escapeHtml(photoAssetUrl(p)) + '" onerror="' + photoImgOnError(p) + '" style="width:100%;max-height:50vh;object-fit:contain;background:#222;">' +
         '<div style="position:absolute;top:6px;left:6px;background:rgba(0,0,0,0.7);color:white;padding:2px 8px;border-radius:10px;font-size:10px;">' +
           (i+1) + '/' + ps.length + ' · ' + escapeHtml(p.timestamp ? p.timestamp.substring(11) : '') +
         '</div>' +
@@ -1264,7 +1287,7 @@ function renderStreak() {
     return '<div class="streak-item' + (hasReview ? ' has-review' : '') + '" data-id="' + p.id + '">' +
       '<div class="streak-item-header">' +
         '<div class="photo-thumb" title="사진 더블클릭: 큰 모달">' +
-          '<img src="assets/photos/' + escapeHtml(p.filename) + '" alt="" ondblclick="openPhotoModal(\'' + p.id + '\', \'' + escapeJs(p.filename) + '\', \'' + escapeJs(p.timestamp || '') + '\')">' +
+          '<img src="' + escapeHtml(photoAssetUrl(p)) + '" onerror="' + photoImgOnError(p) + '" alt="" ondblclick="openPhotoModal(\'' + p.id + '\', \'' + escapeJs(p.filename) + '\', \'' + escapeJs(p.timestamp || '') + '\')">' +
         '</div>' +
         '<div class="info-area" onclick="toggleStreakEdit(\'' + p.id + '\')" title="클릭하여 후기 작성/수정">' +
           '<div class="time">' + escapeHtml(time) + '</div>' +
@@ -1588,8 +1611,16 @@ function deleteReview() {
 // === Photo modal ===
 function openPhotoModal(photoId, filename, timestamp) {
   currentPhotoReviewTarget = { id: photoId, filename: filename, timestamp: timestamp };
-  document.getElementById('photo-modal-img').src = 'assets/photos/' + filename;
-  document.getElementById('photo-modal-img').alt = filename;
+  const photo = SESSION.photos.find(function(p) { return p.id === photoId; }) || { filename: filename };
+  const modalImg = document.getElementById('photo-modal-img');
+  modalImg.onerror = function() {
+    const fallback = photoOriginalFileUrl(photo);
+    if (!fallback || modalImg.src === fallback) return;
+    modalImg.onerror = null;
+    modalImg.src = fallback;
+  };
+  modalImg.src = photoAssetUrl(photo);
+  modalImg.alt = filename;
   document.getElementById('photo-modal-title').textContent = filename;
   document.getElementById('photo-modal-ts').textContent = (timestamp || '') + '  |  클릭하여 후기 작성/수정';
   const review = getReviewText(photoId);

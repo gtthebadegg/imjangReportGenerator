@@ -14,6 +14,7 @@ def test_build_report_from_minimal_session(tmp_path: Path) -> None:
         "title": "샘플 임장 기록",
         "region": "샘플시",
         "visit_date": "2026-06-13",
+        "photo_folder": "/mnt/d/2026 부동산 스터디/260613 안양/assets/photos",
         "data_source": {"molit_deal_ymd": "202605", "route_buffer_m": 300},
         "data_source_note": "literal </script> must not close the SESSION script",
         "photos": [
@@ -58,6 +59,8 @@ def test_build_report_from_minimal_session(tmp_path: Path) -> None:
     assert "imjang_report_v3_data_minimal_test" in html
     assert "202605" in html
     assert "네이버부동산" in html
+    assert "실제 지도와<br>맞지 않나요?" in html
+    assert "실제 지도와<br>맞지 않습니다" not in html
     assert "function naverLandLinkForApt" in html
     assert "new.land.naver.com/search?ms=" in html
     assert "lat.toFixed(6)" in html
@@ -68,6 +71,12 @@ def test_build_report_from_minimal_session(tmp_path: Path) -> None:
     assert '\"data_as_of\": \"unknown\"' not in html
     assert "window.SESSION =" in html
     assert "const SESSION = window.SESSION;" in html
+    assert "function photoAssetUrl" in html
+    assert "function photoOriginalFileUrl" in html
+    assert "function photoImgOnError" in html
+    assert "file:///" in html and ":/" in html
+    assert "^\\/mnt\\/([a-zA-Z])\\/(.*)$" in html
+    assert "onerror=\"" in html
     session_start = html.index("window.SESSION =")
     first_close_after_session = html.index("</script>", session_start)
     second_script_after_session = html.index("<script>", session_start + 1)
