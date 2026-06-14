@@ -56,9 +56,30 @@ for apt in apartments:
         if data_as_of in {'', 'unknown', 'none', 'null'}:
             apt['data_as_of'] = None
 
-report_title = session.get('title') or f"{session.get('region', '임장')} 임장 기록"
+
+def _region_label(region):
+    """Build a natural display string from a region value.
+
+    - dict with 'si' key  → "경기도 안양시 (동안구, 만안구)"
+    - plain string         → use as-is
+    - anything else         → fallback to '임장'
+    """
+    if isinstance(region, dict):
+        si = region.get('si', '')
+        gu_dong = region.get('gu_dong', [])
+        if si:
+            if gu_dong:
+                return f"{si} ({', '.join(gu_dong)})"
+            return si
+        return '임장'
+    if isinstance(region, str) and region:
+        return region
+    return '임장'
+
+
+report_title = session.get('title') or f"{_region_label(session.get('region'))} 임장 기록"
 visit_date = session.get('visit_date') or session.get('date') or ''
-region_label = session.get('region') or session.get('region_hint') or ''
+region_label = _region_label(session.get('region')) if not session.get('title') else session.get('region_hint') or ''
 data_source = session.get('data_source', {}) if isinstance(session.get('data_source'), dict) else {}
 deal_ymd = data_source.get('molit_deal_ymd') or session.get('deal_ymd') or ''
 meta_parts = []
