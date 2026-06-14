@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -13,6 +15,7 @@ def test_build_report_from_minimal_session(tmp_path: Path) -> None:
         "region": "샘플시",
         "visit_date": "2026-06-13",
         "data_source": {"molit_deal_ymd": "202605", "route_buffer_m": 300},
+        "data_source_note": "literal </script> must not close the SESSION script",
         "photos": [
             {"id": "photo_1", "filename": "p1.jpg", "lat": 37.39, "lng": 126.95, "timestamp": "2026-06-13T11:00:00"}
         ],
@@ -63,3 +66,20 @@ def test_build_report_from_minimal_session(tmp_path: Path) -> None:
     assert "2026-05-20" in html
     assert "data: unknown" not in html
     assert '\"data_as_of\": \"unknown\"' not in html
+    assert "window.SESSION =" in html
+    assert "const SESSION = window.SESSION;" in html
+    session_start = html.index("window.SESSION =")
+    first_close_after_session = html.index("</script>", session_start)
+    second_script_after_session = html.index("<script>", session_start + 1)
+    assert first_close_after_session < second_script_after_session
+    session_block = html[session_start:first_close_after_session]
+    assert "literal <\\/script> must not close" in session_block
+    assert "REPORT_TITLE_JS" not in html
+    assert "임장 기록_JS" not in html
+    script_blocks = re.findall(r"<script(?: [^>]*)?>(.*?)</script>", html, re.S)
+    assert len(script_blocks) >= 4
+    if shutil.which("node"):
+        script_path = tmp_path / "report-runtime.js"
+        script_path.write_text(script_blocks[-1], encoding="utf-8")
+        syntax = subprocess.run(["node", "--check", str(script_path)], text=True, capture_output=True, timeout=30)
+        assert syntax.returncode == 0, syntax.stdout + syntax.stderr

@@ -73,6 +73,12 @@ md_intro = f"> {report_meta}"
 price_basis = f"> 가격 기준: {deal_ymd} (국토교통부 아파트매매 실거래가 API / Kakao Local)" if deal_ymd else "> 가격 기준: 국토교통부 아파트매매 실거래가 API / Kakao Local"
 storage_key = 'imjang_report_v3_data_' + ''.join(ch if ch.isalnum() else '_' for ch in (session.get('session_id') or region_label or 'default'))[:60]
 session_json = json.dumps(session, ensure_ascii=False)
+# HTML parsers terminate a <script> block at the literal string "</script>"
+# even when it appears inside a JavaScript string. Escape only the embedded
+# JSON payload here; never run this replacement on the whole HTML template,
+# or the intended closing </script> tag for the SESSION block will be escaped
+# and the rest of the page will be parsed as broken JavaScript.
+session_json_for_script = session_json.replace('</script>', '<\\/script>')
 
 print(f"=== Report v3 Build ===")
 print(f"  session: {session_path}")
@@ -634,7 +640,8 @@ html_content = r'''<!DOCTYPE html>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
-const SESSION = SESSION_PLACEHOLDER;
+window.SESSION = SESSION_PLACEHOLDER;
+const SESSION = window.SESSION;
 </script>
 <script>
 const map = L.map('map').setView([37.394, 126.945], 13);
@@ -2569,13 +2576,17 @@ html_content = html_content.replace('APTS_COUNT', str(len(apartments)))
 
 html_content = html_content.replace('FACS_COUNT', str(len(facilities)))
 html_content = html_content.replace('NEWS_COUNT', str(len(news)))
-html_content = html_content.replace('SESSION_PLACEHOLDER', session_json)
-html_content = html_content.replace('REPORT_TITLE', report_title)
-html_content = html_content.replace('REPORT_META', report_meta)
-html_content = html_content.replace('STORAGE_KEY_PLACEHOLDER', storage_key)
+html_content = html_content.replace('SESSION_PLACEHOLDER', session_json_for_script)
+# Replace longer/suffix placeholders before their shorter prefixes.
+# REPORT_TITLE_JS contains REPORT_TITLE, so replacing REPORT_TITLE first
+# corrupts JavaScript into e.g. "... 임장 기록_JS" and prevents all map/list
+# rendering code from being parsed.
 html_content = html_content.replace('REPORT_TITLE_JS', json.dumps(report_title, ensure_ascii=False))
 html_content = html_content.replace('MD_INTRO_JS', json.dumps(md_intro, ensure_ascii=False))
 html_content = html_content.replace('PRICE_BASIS_JS', json.dumps(price_basis, ensure_ascii=False))
+html_content = html_content.replace('REPORT_TITLE', report_title)
+html_content = html_content.replace('REPORT_META', report_meta)
+html_content = html_content.replace('STORAGE_KEY_PLACEHOLDER', storage_key)
 
 out_path.parent.mkdir(parents=True, exist_ok=True)
 with out_path.open('w', encoding='utf-8') as f:
