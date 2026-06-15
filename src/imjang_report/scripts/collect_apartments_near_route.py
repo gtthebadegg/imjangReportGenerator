@@ -51,7 +51,19 @@ EARTH_R = 6371000.0
 
 
 def load_dotenv() -> None:
-    for p in [Path.home() / ".config/k-skill/secrets.env", Path.home() / ".hermes/.env"]:
+    candidates = [
+        Path.cwd() / ".env",
+        Path(__file__).resolve().parents[3] / ".env",
+        Path.home() / ".config/imjang-report/secrets.env",
+        Path.home() / ".config/k-skill/secrets.env",
+        Path.home() / ".hermes/.env",
+    ]
+    seen: set[Path] = set()
+    for p in candidates:
+        p = p.resolve()
+        if p in seen:
+            continue
+        seen.add(p)
         if not p.exists():
             continue
         for line in p.read_text(encoding="utf-8").splitlines():
@@ -497,6 +509,14 @@ def main() -> int:
             rec["is_daejang"] = bool(old.get("is_daejang", False))
             if old.get("score") is not None:
                 rec["score"] = old.get("score")
+            if old.get("naver_complex_no"):
+                rec["naver_complex_no"] = old.get("naver_complex_no")
+            if old.get("naver_complex_name"):
+                rec["naver_complex_name"] = old.get("naver_complex_name")
+            if old.get("naver_complex_match_score") is not None:
+                rec["naver_complex_match_score"] = old.get("naver_complex_match_score")
+            if old.get("naver_complex_match_reasons"):
+                rec["naver_complex_match_reasons"] = old.get("naver_complex_match_reasons")
     if args.keep_existing:
         merged = {a.get("name"): a for a in session.get("apartments", [])}
         for rec in included:

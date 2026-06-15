@@ -105,6 +105,18 @@ def copy_photos_for_html(session_path: Path, photos: Path, workdir: Path) -> Non
     print(f"copied photos for HTML: {copied} new files -> {assets}")
 
 
+def append_market_data_warnings(session_path: Path, warnings: list[dict]) -> None:
+    if not warnings:
+        return
+    session = json.loads(session_path.read_text(encoding="utf-8"))
+    ds = session.get("data_source")
+    if not isinstance(ds, dict):
+        ds = {"legacy_data_source": ds}
+    ds["market_data_warnings"] = warnings
+    session["data_source"] = ds
+    session_path.write_text(json.dumps(session, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def prepare_report_builder(src: Path, workdir: Path, session_path: Path) -> Path:
     """Copy current v3 builder and rewrite hard-coded workdir paths."""
     dst = workdir / "build_report_v3.py"
@@ -157,13 +169,39 @@ def main() -> int:
     else:
         trade_paths = []
         rent_paths = []
+        market_data_warnings = []
         for lawd in args.lawd_cd:
             trade = workdir / f"trade_{lawd}_{args.deal_ymd}.json"
             rent = workdir / f"rent_{lawd}_{args.deal_ymd}.json"
-            run([sys.executable, py_script("fetch_molit.py"), "fetch", "--lawd-cd", lawd, "--deal-ymd", args.deal_ymd, "--kind", "trade", "--out", str(trade)])
-            run([sys.executable, py_script("fetch_molit.py"), "fetch", "--lawd-cd", lawd, "--deal-ymd", args.deal_ymd, "--kind", "rent", "--source", "proxy", "--out", str(rent)])
-            trade_paths.append(trade)
-            rent_paths.append(rent)
+            try:
+                run([sys.executable, py_script("fetch_molit.py"), "fetch", "--lawd-cd", lawd, "--deal-ymd", args.deal_ymd, "--kind", "trade", "--out", str(trade)])
+                trade_paths.append(trade)
+            except subprocess.CalledProcessError as e:
+                market_data_warnings.append({
+                    "lawd_cd": lawd,
+                    "deal_ymd": args.deal_ymd,
+                    "kind": "trade",
+                    "command": [str(x) for x in e.cmd],
+                    "returncode": e.returncode,
+                })
+                print(f"[warn] trade fetch failed for {lawd} {args.deal_ymd}; continue with Kakao POI-only apartments", file=sys.stderr)
+
+            try:
+                run([sys.executable, py_script("fetch_molit.py"), "fetch", "--lawd-cd", lawd, "--deal-ymd", args.deal_ymd, "--kind", "rent", "--source", "proxy", "--out", str(rent)])
+                rent_paths.append(rent)
+            except subprocess.CalledProcessError as e:
+                market_data_warnings.append({
+                    "lawd_cd": lawd,
+                    "deal_ymd": args.deal_ymd,
+                    "kind": "rent",
+                    "command": [str(x) for x in e.cmd],
+                    "returncode": e.returncode,
+                })
+                print(f"[warn] rent fetch failed for {lawd} {args.deal_ymd}; continue without rent prices", file=sys.stderr)
+
+        if market_data_warnings:
+            (workdir / "market_data_warnings.json").write_text(json.dumps(market_data_warnings, ensure_ascii=False, indent=2), encoding="utf-8")
+            append_market_data_warnings(session_path, market_data_warnings)
 
         collect_cmd = [
             sys.executable, py_script("collect_apartments_near_route.py"),
@@ -177,6 +215,17 @@ def main() -> int:
         for p in rent_paths:
             collect_cmd += ["--rent-json", str(p)]
         run(collect_cmd)
+
+        try:
+            run([
+                sys.executable,
+                py_script("enrich_naver_complexes.py"),
+                "--session", str(session_path),
+                "--cache", str(workdir / "naver_complex_cache.json"),
+                "--audit", str(workdir / "naver_complex_audit.json"),
+            ])
+        except subprocess.CalledProcessError as e:
+            print(f"[warn] naver complex lookup failed; keep search-link fallback: rc={e.returncode}", file=sys.stderr)
 
     # 자동 대장아파트 판단은 제거됨.
     # 대장아파트는 report.html에서 사용자가 직접 체크하고 localStorage/JSON/MD/Notion export에 반영한다.

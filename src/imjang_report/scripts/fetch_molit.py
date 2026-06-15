@@ -52,7 +52,19 @@ APT_TRADE_ENDPOINT = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTM
 
 
 def load_dotenv() -> None:
-    for p in [Path.home() / ".config/k-skill/secrets.env", Path.home() / ".hermes/.env"]:
+    candidates = [
+        Path.cwd() / ".env",
+        Path(__file__).resolve().parents[3] / ".env",
+        Path.home() / ".config/imjang-report/secrets.env",
+        Path.home() / ".config/k-skill/secrets.env",
+        Path.home() / ".hermes/.env",
+    ]
+    seen: set[Path] = set()
+    for p in candidates:
+        p = p.resolve()
+        if p in seen:
+            continue
+        seen.add(p)
         if not p.exists():
             continue
         for line in p.read_text(encoding="utf-8").splitlines():
@@ -88,6 +100,12 @@ def get_json_url(url: str, timeout: int = 40) -> dict:
 def get_proxy_json(path: str, params: dict[str, str]) -> dict:
     url = proxy_base() + path + "?" + urllib.parse.urlencode(params)
     return get_json_url(url)
+
+
+def fetch_trade_proxy(lawd_cd: str, deal_ymd: str) -> dict:
+    data = get_proxy_json("/v1/real-estate/apartment/trade", {"lawd_cd": lawd_cd, "deal_ymd": deal_ymd})
+    data.setdefault("source", "k-skill-proxy apartment trade")
+    return data
 
 
 def clean_amount(v) -> int | None:
@@ -216,10 +234,25 @@ def cmd_region_code(args: argparse.Namespace) -> int:
 def cmd_fetch(args: argparse.Namespace) -> int:
     if args.kind == "trade":
         if args.source == "proxy":
-            data = get_proxy_json("/v1/real-estate/apartment/trade", {"lawd_cd": args.lawd_cd, "deal_ymd": args.deal_ymd})
-            data.setdefault("source", "k-skill-proxy apartment trade")
-        else:
+            data = fetch_trade_proxy(args.lawd_cd, args.deal_ymd)
+        elif args.source == "direct":
             data = fetch_trade_direct(args.lawd_cd, args.deal_ymd, args.num_rows)
+        else:
+            load_dotenv()
+            has_direct_key = bool(
+                os.environ.get("MOLIT_SERVICE_KEY")
+                or os.environ.get("DATA_GO_KR_SERVICE_KEY")
+                or os.environ.get("MOLIT_API_KEY")
+            )
+            if has_direct_key:
+                try:
+                    data = fetch_trade_direct(args.lawd_cd, args.deal_ymd, args.num_rows)
+                except Exception as e:
+                    print(f"[warn] trade direct failed; fallback to proxy: {e}", file=sys.stderr)
+                    data = fetch_trade_proxy(args.lawd_cd, args.deal_ymd)
+            else:
+                print("[warn] trade direct key missing; fallback to proxy", file=sys.stderr)
+                data = fetch_trade_proxy(args.lawd_cd, args.deal_ymd)
     elif args.kind == "rent":
         if args.source == "direct":
             raise SystemExit("rent direct endpoint is not wired yet; use --source proxy for rent")
@@ -249,7 +282,7 @@ def main() -> int:
     p.add_argument("--lawd-cd", required=True)
     p.add_argument("--deal-ymd", required=True, help="YYYYMM")
     p.add_argument("--kind", choices=["trade", "rent"], required=True)
-    p.add_argument("--source", choices=["direct", "proxy"], default="direct", help="trade 기본 direct, rent는 proxy만 지원")
+    p.add_argument("--source", choices=["auto", "direct", "proxy"], default="auto", help="trade 기본 auto(direct 후 실패 시 proxy fallback), rent는 proxy만 지원")
     p.add_argument("--num-rows", type=int, default=1000)
     p.add_argument("--out")
     p.set_defaults(func=cmd_fetch)

@@ -967,6 +967,10 @@ function userMarkIcon(emoji) {
 // === Apartment markers ===
 const aptMarkers = {};
 function naverLandLinkForApt(a) {
+  const complexNo = String(a.naver_complex_no || a.naver_complex_number || '').trim();
+  if (complexNo) {
+    return 'https://fin.land.naver.com/complexes/' + encodeURIComponent(complexNo) + '?tab=' + encodeURIComponent('시세_실거래');
+  }
   const query = encodeURIComponent(a.name || '');
   const lat = Number(a.lat);
   const lng = Number(a.lng);
@@ -2237,7 +2241,7 @@ function generateMarkdown() {
       if (a.jeonse_price) lines.push('- **중위 전세**: ' + a.jeonse_price);
       if (a.latest_deal_date) lines.push('- **기준일**: ' + formatDealDateInfo(a, '기준일').replace(/^기준일: /, ''));
       if (a.kakao_map_link) lines.push('- **카카오맵**: [' + a.name + '](' + a.kakao_map_link + ')');
-      if (a.naver_link) lines.push('- **네이버부동산**: [' + a.name + '](' + a.naver_link + ')');
+      lines.push('- **네이버부동산**: [' + a.name + '](' + naverLandLinkForApt(a) + ')');
       if (allTags.length) lines.push('- **태그**: ' + allTags.map(function(t) { return '`' + t + '`'; }).join(', '));
       lines.push('');
       if (review) {
@@ -2459,7 +2463,7 @@ function generateMarkdownForNotionZip(imageMap) {
       if (a.jeonse_price) lines.push('- **중위 전세**: ' + a.jeonse_price);
       if (a.latest_deal_date) lines.push('- **기준일**: ' + formatDealDateInfo(a, '기준일').replace(/^기준일: /, ''));
       if (a.kakao_map_link) lines.push('- **카카오맵**: [' + a.name + '](' + a.kakao_map_link + ')');
-      if (a.naver_link) lines.push('- **네이버부동산**: [' + a.name + '](' + a.naver_link + ')');
+      lines.push('- **네이버부동산**: [' + a.name + '](' + naverLandLinkForApt(a) + ')');
       if (allTags.length) lines.push('- **태그**: ' + allTags.map(function(t) { return '`' + t + '`'; }).join(', '));
       lines.push('');
       if (review) {

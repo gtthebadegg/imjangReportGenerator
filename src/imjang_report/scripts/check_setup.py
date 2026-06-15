@@ -148,7 +148,7 @@ def main() -> int:
             if key == "MOLIT_OR_DATA_GO_KR":
                 print(f"  - {key}: {'OK' if st['ok'] else 'MISSING'}")
             else:
-                print(f"  - {key}: {st['status']} — {st['description']}")
+                print(f"  - {key}: {st['status']} - {st['description']}")
         if args.check_network:
             print("- Network:")
             for name, st in results["network"].items():  # type: ignore[union-attr]

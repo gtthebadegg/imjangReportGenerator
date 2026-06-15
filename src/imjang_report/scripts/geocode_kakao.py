@@ -34,7 +34,19 @@ from urllib.parse import urlencode
 
 
 def load_dotenv() -> None:
-    for p in [Path.home() / ".config/k-skill/secrets.env", Path.home() / ".hermes/.env"]:
+    candidates = [
+        Path.cwd() / ".env",
+        Path(__file__).resolve().parents[3] / ".env",
+        Path.home() / ".config/imjang-report/secrets.env",
+        Path.home() / ".config/k-skill/secrets.env",
+        Path.home() / ".hermes/.env",
+    ]
+    seen: set[Path] = set()
+    for p in candidates:
+        p = p.resolve()
+        if p in seen:
+            continue
+        seen.add(p)
         if not p.exists():
             continue
         for line in p.read_text(encoding="utf-8").splitlines():
