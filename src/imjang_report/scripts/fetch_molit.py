@@ -108,6 +108,86 @@ def fetch_trade_proxy(lawd_cd: str, deal_ymd: str) -> dict:
     return data
 
 
+# ---------------------------------------------------------------------------
+# 라우트 추적: 어느 경로(direct/proxy)가 살았는지/죽었는지 data dict에 남긴다.
+# - data["attempts"]: [{source, status, error, latency_ms, items_count}, ...]
+# - data["route_taken"]: "direct" | "proxy" | "none"
+# - data["source"]: 최종적으로 응답을 받았을 때의 출처 (이전과 동일 의미)
+# ---------------------------------------------------------------------------
+
+def _attempt_record(source: str, status: str, error: str | None, latency_ms: int, items_count: int) -> dict:
+    return {
+        "source": source,
+        "status": status,        # "ok" | "http_XXX" | "error" | "timeout" | "json_parse"
+        "error": error,
+        "latency_ms": latency_ms,
+        "items_count": items_count,
+    }
+
+
+def _try_direct_trade(lawd_cd: str, deal_ymd: str, num_rows: int) -> tuple[dict | None, dict]:
+    """직접 호출을 한 번 시도하고 (data, attempt_record) 를 돌려준다."""
+    t0 = time.monotonic()
+    try:
+        data = fetch_trade_direct(lawd_cd, deal_ymd, num_rows)
+    except HTTPError as e:
+        return None, _attempt_record(
+            "direct", f"http_{e.code}", str(e.reason)[:200],
+            int((time.monotonic() - t0) * 1000), 0,
+        )
+    except URLError as e:
+        return None, _attempt_record(
+            "direct", "error", f"URLError: {e.reason}"[:200],
+            int((time.monotonic() - t0) * 1000), 0,
+        )
+    except (TimeoutError, RuntimeError) as e:
+        status = "timeout" if isinstance(e, TimeoutError) else "json_parse" if "JSON parse" in str(e) else "error"
+        return None, _attempt_record(
+            "direct", status, str(e)[:200],
+            int((time.monotonic() - t0) * 1000), 0,
+        )
+    except Exception as e:  # noqa: BLE001
+        return None, _attempt_record(
+            "direct", "error", f"{type(e).__name__}: {e}"[:200],
+            int((time.monotonic() - t0) * 1000), 0,
+        )
+    latency = int((time.monotonic() - t0) * 1000)
+    return data, _attempt_record(
+        "direct", "ok", None, latency, len(data.get("items", [])),
+    )
+
+
+def _try_proxy_trade(lawd_cd: str, deal_ymd: str) -> tuple[dict | None, dict]:
+    t0 = time.monotonic()
+    try:
+        data = fetch_trade_proxy(lawd_cd, deal_ymd)
+    except HTTPError as e:
+        return None, _attempt_record(
+            "proxy", f"http_{e.code}", str(e.reason)[:200],
+            int((time.monotonic() - t0) * 1000), 0,
+        )
+    except URLError as e:
+        return None, _attempt_record(
+            "proxy", "error", f"URLError: {e.reason}"[:200],
+            int((time.monotonic() - t0) * 1000), 0,
+        )
+    except (TimeoutError, RuntimeError) as e:
+        status = "timeout" if isinstance(e, TimeoutError) else "json_parse" if "JSON parse" in str(e) else "error"
+        return None, _attempt_record(
+            "proxy", status, str(e)[:200],
+            int((time.monotonic() - t0) * 1000), 0,
+        )
+    except Exception as e:  # noqa: BLE001
+        return None, _attempt_record(
+            "proxy", "error", f"{type(e).__name__}: {e}"[:200],
+            int((time.monotonic() - t0) * 1000), 0,
+        )
+    latency = int((time.monotonic() - t0) * 1000)
+    return data, _attempt_record(
+        "proxy", "ok", None, latency, len(data.get("items", [])),
+    )
+
+
 def clean_amount(v) -> int | None:
     if v is None:
         return None
@@ -232,12 +312,20 @@ def cmd_region_code(args: argparse.Namespace) -> int:
 
 
 def cmd_fetch(args: argparse.Namespace) -> int:
+    data: dict | None = None
+    attempts: list[dict] = []
+    route_taken = "none"
+
     if args.kind == "trade":
         if args.source == "proxy":
-            data = fetch_trade_proxy(args.lawd_cd, args.deal_ymd)
+            data, rec = _try_proxy_trade(args.lawd_cd, args.deal_ymd)
+            attempts.append(rec)
+            route_taken = "proxy" if data is not None else "none"
         elif args.source == "direct":
-            data = fetch_trade_direct(args.lawd_cd, args.deal_ymd, args.num_rows)
-        else:
+            data, rec = _try_direct_trade(args.lawd_cd, args.deal_ymd, args.num_rows)
+            attempts.append(rec)
+            route_taken = "direct" if data is not None else "none"
+        else:  # auto: direct 먼저, 실패하면 proxy fallback
             load_dotenv()
             has_direct_key = bool(
                 os.environ.get("MOLIT_SERVICE_KEY")
@@ -245,28 +333,77 @@ def cmd_fetch(args: argparse.Namespace) -> int:
                 or os.environ.get("MOLIT_API_KEY")
             )
             if has_direct_key:
-                try:
-                    data = fetch_trade_direct(args.lawd_cd, args.deal_ymd, args.num_rows)
-                except Exception as e:
-                    print(f"[warn] trade direct failed; fallback to proxy: {e}", file=sys.stderr)
-                    data = fetch_trade_proxy(args.lawd_cd, args.deal_ymd)
+                d, rec = _try_direct_trade(args.lawd_cd, args.deal_ymd, args.num_rows)
+                attempts.append(rec)
+                if d is not None:
+                    data, route_taken = d, "direct"
+                else:
+                    print(f"[warn] trade direct failed (status={rec['status']} err={rec['error']!r}); fallback to proxy", file=sys.stderr)
+                    d2, rec2 = _try_proxy_trade(args.lawd_cd, args.deal_ymd)
+                    attempts.append(rec2)
+                    if d2 is not None:
+                        data, route_taken = d2, "proxy"
             else:
                 print("[warn] trade direct key missing; fallback to proxy", file=sys.stderr)
-                data = fetch_trade_proxy(args.lawd_cd, args.deal_ymd)
+                d, rec = _try_proxy_trade(args.lawd_cd, args.deal_ymd)
+                attempts.append(rec)
+                if d is not None:
+                    data, route_taken = d, "proxy"
     elif args.kind == "rent":
         if args.source == "direct":
             raise SystemExit("rent direct endpoint is not wired yet; use --source proxy for rent")
-        data = get_proxy_json("/v1/real-estate/apartment/rent", {"lawd_cd": args.lawd_cd, "deal_ymd": args.deal_ymd})
-        data.setdefault("source", "k-skill-proxy apartment rent")
+        t0 = time.monotonic()
+        try:
+            data = get_proxy_json("/v1/real-estate/apartment/rent", {"lawd_cd": args.lawd_cd, "deal_ymd": args.deal_ymd})
+            data.setdefault("source", "k-skill-proxy apartment rent")
+            attempts.append(_attempt_record("proxy", "ok", None, int((time.monotonic() - t0) * 1000), len(data.get("items", []))))
+            route_taken = "proxy"
+        except Exception as e:  # noqa: BLE001
+            attempts.append(_attempt_record("proxy", "error", f"{type(e).__name__}: {e}"[:200], int((time.monotonic() - t0) * 1000), 0))
+            print(f"[warn] rent proxy failed: {e}", file=sys.stderr)
     else:
         raise SystemExit("--kind must be trade or rent")
 
+    if data is None:
+        # 둘 다 실패: 사용자가 out 지정했으면 빈 파일이라도 남겨서 호출 사실은 기록되게 함
+        empty = {
+            "source": None,
+            "route_taken": "none",
+            "attempts": attempts,
+            "lawd_cd": args.lawd_cd,
+            "deal_ymd": args.deal_ymd,
+            "kind": args.kind,
+            "items": [],
+            "raw_total_count": None,
+            "error": "all routes failed; see attempts[]",
+        }
+        if args.out:
+            Path(args.out).write_text(json.dumps(empty, ensure_ascii=False, indent=2), encoding="utf-8")
+            _summarize(args.out, empty)
+        else:
+            print(json.dumps(empty, ensure_ascii=False, indent=2))
+        return 2  # 호출 자체는 성공했지만 데이터를 못 받았다는 신호
+
+    # 라우트 추적 정보를 data dict에 박아둔다 (downstream이 보면 도움됨)
+    data["route_taken"] = route_taken
+    data["attempts"] = attempts
+
     if args.out:
         Path(args.out).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"wrote {args.out} source={data.get('source')} items={len(data.get('items', []))} raw_total={data.get('raw_total_count')}")
+        _summarize(args.out, data)
     else:
         print(json.dumps(data, ensure_ascii=False, indent=2))
     return 0
+
+
+def _summarize(out_path: str, data: dict) -> None:
+    attempts = data.get("attempts", []) or []
+    chain = "->".join(f"{a['source']}:{a['status']}({a['items_count']})" for a in attempts) or "n/a"
+    print(
+        f"wrote {out_path} route={data.get('route_taken')} chain=[{chain}] "
+        f"source={data.get('source')} items={len(data.get('items', []))} "
+        f"raw_total={data.get('raw_total_count')}"
+    )
 
 
 def main() -> int:
